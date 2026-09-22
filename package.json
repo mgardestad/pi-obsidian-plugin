@@ -1,0 +1,12 @@
+{
+  "name": "pi-obsidian-plugin",
+  "version": "0.1.0",
+  "description": "Obsidian wikilink autocomplete for pi",
+  "keywords": ["pi-package", "obsidian"],
+  "type": "module",
+  "pi": { "extensions": ["./extensions"] },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
