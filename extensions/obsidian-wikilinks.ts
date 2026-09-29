@@ -141,15 +141,21 @@ function fuzzyScore(query: string, title: string): number | null {
   return prefixPenalty + gaps + (haystack.length - needle.length) / 1000;
 }
 
+function isInAttachmentsFolder(relativePath: string): boolean {
+  return relativePath.split(/[\\/]/).some((part) => part.toLowerCase() === "attachments");
+}
+
 async function searchLocalVault(query: string): Promise<AutocompleteItem[]> {
   const results: Array<{ item: AutocompleteItem; score: number }> = [];
   async function walk(directory: string): Promise<void> {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.name.startsWith(".") || entry.name === "attachments") continue;
+      if (entry.name.startsWith(".")) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await walk(path);
-      else if (entry.isFile() && /\.md$/i.test(entry.name)) {
+      else if (entry.isFile()) {
         const relative = path.slice(VAULT_ROOT.length + 1);
+        if (isInAttachmentsFolder(relative)) continue;
+        // Keep extensions for non-Markdown files so Obsidian can resolve them.
         const title = relative.replace(/\.md$/i, "");
         const score = fuzzyScore(query, title);
         if (score !== null) results.push({ item: { value: title, label: relative }, score });
@@ -160,6 +166,16 @@ async function searchLocalVault(query: string): Promise<AutocompleteItem[]> {
   return results.sort((a, b) => a.score - b.score).slice(0, 20).map((result) => result.item);
 }
 
+function mergeSearchResults(...groups: AutocompleteItem[][]): AutocompleteItem[] {
+  const seen = new Set<string>();
+  return groups.flat().filter((item) => {
+    const path = item.value;
+    if (isInAttachmentsFolder(path) || seen.has(path)) return false;
+    seen.add(path);
+    return true;
+  }).slice(0, 20);
+}
+
 function parseResults(text: string, query: string): AutocompleteItem[] {
   let value: unknown = text;
   try { value = JSON.parse(text); } catch { /* plain text result */ }
@@ -167,10 +183,16 @@ function parseResults(text: string, query: string): AutocompleteItem[] {
   const items: AutocompleteItem[] = [];
   for (const row of rows) {
     const path = typeof row === "string" ? row : row && typeof row === "object" ? String((row as any).path ?? (row as any).filename ?? (row as any).file ?? (row as any).name ?? "") : "";
-    if (path && /\.md$/i.test(path)) items.push({ value: path.replace(/\.md$/i, ""), label: path, description: typeof row === "object" ? String((row as any).snippet ?? "") : undefined });
+    if (path) {
+      items.push({
+        value: path.replace(/\.md$/i, ""),
+        label: path,
+        description: typeof row === "object" ? String((row as any).snippet ?? "") : undefined,
+      });
+    }
   }
   if (items.length) return items.slice(0, 20);
-  return text.split(/\r?\n/).map((line) => line.match(/(?:^|\s)([^\s|]+\.md)(?:\s|$)/i)?.[1]).filter((path): path is string => Boolean(path)).slice(0, 20).map((path) => ({ value: path.replace(/\.md$/i, ""), label: path }));
+  return text.split(/\r?\n/).map((line) => line.match(/(?:^|\s)([^\s|]+)(?:\s|$)/)?.[1]).filter((path): path is string => Boolean(path)).slice(0, 20).map((path) => ({ value: path.replace(/\.md$/i, ""), label: path }));
 }
 
 function wikilinkPrefix(lines: string[], line: number, col: number): { start: number; prefix: string } | null {
@@ -191,7 +213,13 @@ export default function (pi: ExtensionAPI) {
           const match = wikilinkPrefix(lines, cursorLine, cursorCol);
           if (!match || match.prefix.length === 0) return null;
           try {
-            return { prefix: match.prefix, items: await mcp.search(match.prefix, options.signal) };
+            // MCP primarily returns notes; merge in local files so every file type
+            // outside an attachments folder can be linked as well.
+            const [mcpItems, localItems] = await Promise.all([
+              mcp.search(match.prefix, options.signal),
+              searchLocalVault(match.prefix),
+            ]);
+            return { prefix: match.prefix, items: mergeSearchResults(mcpItems, localItems) };
           } catch (error) {
             if (options.signal.aborted) return null;
             // Keep autocomplete useful when Obsidian is closed or MCP is unavailable.
@@ -253,7 +281,6 @@ export default function (pi: ExtensionAPI) {
         }
       }
       const editor = new ObsidianEditor(tui, theme, keybindings);
-      ctx.ui.setWidget("obsidian-wikilinks", ["Obsidian wikilink lookup ready"]);
       editor.setAutocompleteProvider(provider);
       // The interactive mode may install its default provider immediately after
       // the editor factory returns. Re-apply ours on the next microtask so the
