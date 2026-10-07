@@ -30,4 +30,4 @@ Bearer tokens such as `${OBSIDIAN_API_TOKEN}` are expanded from the environment.
 
 Type `[[` followed by at least one search character. Use the normal autocomplete keys (arrow keys and Enter) to select a note; Escape closes the suggestions.
 
-To link a section, add `#` after the note: `[[Untitled 4#con` lists the headings of `Untitled 4` (or the best-matching note) that fuzzy-match `con`, and selecting one inserts `[[Untitled 4#Concept Graph]]`. This also works when you move the cursor back into a finished link and type `#` before the `]]`. Headings are read from the vault's files, skipping frontmatter and fenced code blocks.
+To link a section, add `#` after the note: `[[Example Note#section` lists the headings of `Example Note` (or the best-matching note) that fuzzy-match `section`, and selecting one inserts `[[Example Note#Example Section]]`. This also works when you move the cursor back into a finished link and type `#` before the `]]`. Headings are read from the vault's files, skipping frontmatter and fenced code blocks.
