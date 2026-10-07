@@ -121,20 +121,29 @@ class ObsidianMcp {
 }
 
 function fuzzyScore(query: string, title: string): number | null {
-  const needle = query.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const haystack = title.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!needle) return 0;
-  let position = 0;
-  let gaps = 0;
-  for (const character of needle) {
-    const found = haystack.indexOf(character, position);
-    if (found < 0) return null;
-    gaps += found - position;
-    position = found + 1;
+  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const titleTerms = title.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return 0;
+
+  // Match each query term independently. This makes matching insensitive to
+  // title word order and lets shortened dates match a full date, e.g.
+  // `pm-po 10-02` matches `2026-10-02 PM-PO sync ceremony`.
+  let score = 0;
+  for (const term of terms) {
+    const normalizedTerm = term.replace(/[^a-z0-9]/g, "");
+    let best: number | null = null;
+    for (const titleTerm of titleTerms) {
+      const normalizedTitleTerm = titleTerm.replace(/[^a-z0-9]/g, "");
+      const position = normalizedTitleTerm.indexOf(normalizedTerm);
+      if (position < 0) continue;
+      const candidate = position * 2 + (normalizedTitleTerm.length - normalizedTerm.length) / 1000;
+      best = best === null ? candidate : Math.min(best, candidate);
+    }
+    if (best === null) return null;
+    score += best;
   }
-  // Lower is better: reward title prefixes and contiguous matches.
-  const prefixPenalty = haystack.startsWith(needle) ? 0 : 10;
-  return prefixPenalty + gaps + (haystack.length - needle.length) / 1000;
+
+  return score;
 }
 
 function isInAttachmentsFolder(relativePath: string): boolean {
